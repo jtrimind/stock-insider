@@ -161,9 +161,18 @@ class DARTClient:
             return []
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or os.getenv("DART_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            # Try Streamlit Secrets first, then fallback to OS Environment variables
+            try:
+                import streamlit as st
+                self.api_key = st.secrets.get("DART_API_KEY", os.getenv("DART_API_KEY"))
+            except Exception:
+                self.api_key = os.getenv("DART_API_KEY")
+                
         if not self.api_key:
-            raise ValueError("DART_API_KEY is not set in environment variables or passed to the client.")
+            raise ValueError("DART_API_KEY is not set in Streamlit secrets, environment variables, or passed to the client.")
         
         # Internal cache for corp_code mapping
         self._corp_data_map: Dict[str, Dict[str, str]] = {}
