@@ -5,6 +5,7 @@ import zipfile
 import json
 import xml.etree.ElementTree as ET
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
@@ -22,6 +23,122 @@ class DARTClient:
     def get_document_url(rcept_no: str) -> str:
         """Helper to generate a direct link to the DART web viewer for a specific report."""
         return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
+
+    @staticmethod
+    def _parse_html_table(table_soup) -> List[List[str]]:
+        """Parse HTML table into a 2D list handling rowspans and colspans."""
+        rows = table_soup.find_all('TR')
+        spanned_cells = {}
+        grid = []
+        
+        for r_idx, row in enumerate(rows):
+            cells = row.find_all(['TH', 'TD', 'TE', 'TU', 'th', 'td', 'te', 'tu'])
+            row_data = []
+            c_idx = 0
+            
+            while (r_idx, c_idx) in spanned_cells:
+                row_data.append(spanned_cells[(r_idx, c_idx)])
+                c_idx += 1
+                
+            for cell in cells:
+                while (r_idx, c_idx) in spanned_cells:
+                    row_data.append(spanned_cells[(r_idx, c_idx)])
+                    c_idx += 1
+                    
+                text = cell.get_text(separator=' ', strip=True).replace('\n', '')
+                
+                rowspan = int(cell.get('rowspan') or cell.get('ROWSPAN') or 1)
+                colspan = int(cell.get('colspan') or cell.get('COLSPAN') or 1)
+                
+                for i in range(rowspan):
+                    for j in range(colspan):
+                        if i == 0 and j == 0:
+                            continue
+                        spanned_cells[(r_idx + i, c_idx + j)] = text
+                        
+                for _ in range(colspan):
+                    row_data.append(text)
+                    c_idx += 1
+                    
+            grid.append(row_data)
+            
+        return grid
+
+    @staticmethod
+    def _extract_trade_info(grid: List[List[str]]) -> List[Dict[str, str]]:
+        """Extracts Reason, Change, and Unit Price dynamically from the grid."""
+        if not grid or len(grid) < 2:
+            return []
+            
+        reason_idx, change_idx, price_idx = -1, -1, -1
+        
+        for r in range(min(3, len(grid))):
+            for c, val in enumerate(grid[r]):
+                if "보고사유" in val:
+                    reason_idx = c
+                if "증감" in val:
+                    change_idx = c
+                if "단가" in val:
+                    price_idx = c
+                    
+        if reason_idx == -1 or change_idx == -1 or price_idx == -1:
+            return []
+            
+        trades = []
+        for row in grid[2:]:
+            if "합계" in row[0].replace(" ", "") or "총계" in row[0]:
+                continue
+                
+            if len(row) > max(reason_idx, change_idx, price_idx):
+                reason = row[reason_idx]
+                change = row[change_idx]
+                price = row[price_idx]
+                
+                if change and change != "-":
+                    trades.append({
+                        "reason": reason,
+                        "change": change,
+                        "price": price
+                    })
+                    
+        return trades
+
+    def get_insider_trade_details(self, rcept_no: str) -> List[Dict[str, str]]:
+        """Fetches the official XML document from DART and parses the detailed trade history."""
+        url = f"{self.BASE_URL}/document.xml"
+        params = {
+            "crtfc_key": self.api_key,
+            "rcept_no": rcept_no
+        }
+        
+        try:
+            resp = requests.get(url, params=params)
+            resp.raise_for_status()
+            
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
+                for name in z.namelist():
+                    if name.endswith(".xml"):
+                        with z.open(name) as f:
+                            xml_content = f.read().decode('utf-8')
+                            soup = BeautifulSoup(xml_content, "xml")
+                            tables = soup.find_all("TABLE")
+                            
+                            target_table = None
+                            for table in tables:
+                                text = table.get_text(strip=True)
+                                if "보고사유" in text and ("단가" in text or "증감" in text or "소유주식수" in text):
+                                    target_table = table
+                                    break
+                            
+                            if not target_table:
+                                return []
+                            
+                            grid = self._parse_html_table(target_table)
+                            return self._extract_trade_info(grid)
+            return []
+        except Exception as e:
+            # print(f"Failed to fetch details for {rcept_no}: {e}")
+            return []
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("DART_API_KEY")

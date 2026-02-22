@@ -39,6 +39,12 @@ def fetch_recent_disclosures(days: int = 7):
         return df
     return pd.DataFrame()
 
+@st.cache_data(ttl=3600*24)
+def get_trade_details(rcept_no: str):
+    """"Fetch details for a specific report. Cached to prevent redundant XML fetching."""
+    client = get_dart_client()
+    return client.get_insider_trade_details(rcept_no)
+
 def main():
     st.title("📈 Stock Insider (한국 주식 내부자 거래 추적)")
     st.markdown("임원 및 주요주주의 최근 지분 변동 공시를 1주일 단위로 확인합니다.")
@@ -55,9 +61,32 @@ def main():
         st.info("해당 기간 동안의 내부자 거래 공시가 없습니다.")
         return
 
+    # Fetch specific trade details for the displayed DataFrame
+    progress_bar = st.progress(0, text="공시 원문에서 세부 변동사항 추출 중...")
+    
+    reasons, changes, prices = [], [], []
+    total_rows = len(df)
+    for idx, row in enumerate(df.itertuples()):
+        trades = get_trade_details(row.rcept_no)
+        if trades:
+            reasons.append("\n".join([t['reason'] for t in trades]))
+            changes.append("\n".join([t['change'] for t in trades]))
+            prices.append("\n".join([t['price'] for t in trades]))
+        else:
+            reasons.append("-")
+            changes.append("-")
+            prices.append("-")
+        progress_bar.progress((idx + 1) / total_rows, text=f"공시 원문 분석 중... ({idx+1}/{total_rows})")
+    
+    progress_bar.empty()
+    
+    df['보고사유'] = reasons
+    df['증감'] = changes
+    df['단가'] = prices
+
     # Clean up columns for display
-    display_df = df[["rcept_dt", "corp_name", "flr_nm", "report_nm", "viewer_url"]].copy()
-    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "보고서명", "원문 링크"]
+    display_df = df[["rcept_dt", "corp_name", "flr_nm", "보고사유", "증감", "단가", "viewer_url"]].copy()
+    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "보고사유", "증감(주)", "단가(원)", "원문 링크"]
     
     # Sort by date descending
     display_df = display_df.sort_values(by="공시일", ascending=False)
