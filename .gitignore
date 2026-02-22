@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Python compilation
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+.Python
+
+# uv
+.uv.cache/
+
+# Project specifics (Data cache & DB)
+.cache/
+*.db
+*.sqlite3

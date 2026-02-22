@@ -1,0 +1,17 @@
+[project]
+name = "stock-insider"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pykrx>=1.2.4",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "responses>=0.26.0",
+]
