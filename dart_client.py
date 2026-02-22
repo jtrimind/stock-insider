@@ -166,26 +166,26 @@ class DARTClient:
             raise ValueError("DART_API_KEY is not set in environment variables or passed to the client.")
         
         # Internal cache for corp_code mapping
-        self._corp_code_map: Dict[str, str] = {}
+        self._corp_data_map: Dict[str, Dict[str, str]] = {}
         # Path for the cache directory
         self._cache_dir = os.path.join(os.path.dirname(__file__), '.cache')
         os.makedirs(self._cache_dir, exist_ok=True)
 
-    def get_corp_codes(self, force_refresh: bool = False) -> Dict[str, str]:
-        """Fetches and parses the corpCode.xml to map company names back to DART corp_codes.
+    def get_corp_codes(self, force_refresh: bool = False) -> Dict[str, Dict[str, str]]:
+        """Fetches and parses the corpCode.xml to map company names back to DART corp_codes and KRX stock_codes.
         Uses a local JSON file cache per day to prevent redundant downloads."""
-        if self._corp_code_map and not force_refresh:
-            return self._corp_code_map
+        if self._corp_data_map and not force_refresh:
+            return self._corp_data_map
 
-        # Use current date as cache key (YYYYMMDD)
+        # Use current date as cache key (YYYYMMDD) - V2 bust cache for stock code addition
         today_str = datetime.now().strftime("%Y%m%d")
-        cache_file = os.path.join(self._cache_dir, f"corp_codes_{today_str}.json")
+        cache_file = os.path.join(self._cache_dir, f"corp_codes_v2_{today_str}.json")
 
         if not force_refresh and os.path.exists(cache_file):
             print(f"Loading corp codes from local cache: {cache_file}")
             with open(cache_file, 'r', encoding='utf-8') as f:
-                self._corp_code_map = json.load(f)
-            return self._corp_code_map
+                self._corp_data_map = json.load(f)
+            return self._corp_data_map
 
         url = f"{self.BASE_URL}/corpCode.xml"
         params = {"crtfc_key": self.api_key}
@@ -203,22 +203,33 @@ class DARTClient:
                 for list_item in root.findall('list'):
                     corp_name = list_item.findtext('corp_name')
                     corp_code = list_item.findtext('corp_code')
+                    stock_code = list_item.findtext('stock_code')
                     if corp_name and corp_code:
-                        self._corp_code_map[corp_name] = corp_code
+                        self._corp_data_map[corp_name] = {
+                            "corp_code": corp_code,
+                            "stock_code": stock_code.strip() if stock_code else ""
+                        }
 
         # Save to cache
         print(f"Saving corp codes to local cache: {cache_file}")
         with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(self._corp_code_map, f, ensure_ascii=False, indent=2)
+            json.dump(self._corp_data_map, f, ensure_ascii=False, indent=2)
 
-        print(f"Successfully loaded {len(self._corp_code_map)} company codes.")
-        return self._corp_code_map
+        print(f"Successfully loaded {len(self._corp_data_map)} company codes.")
+        return self._corp_data_map
 
     def get_corp_code_by_name(self, company_name: str) -> Optional[str]:
         """Helper to get a corp_code for a specific company name."""
-        if not self._corp_code_map:
+        if not self._corp_data_map:
             self.get_corp_codes()
-        return self._corp_code_map.get(company_name)
+        data = self._corp_data_map.get(company_name)
+        return data["corp_code"] if data else None
+
+    def get_company_info_by_name(self, company_name: str) -> Optional[Dict[str, str]]:
+        """Helper to get both corp_code and stock_code for a specific company name."""
+        if not self._corp_data_map:
+            self.get_corp_codes()
+        return self._corp_data_map.get(company_name)
 
     def get_disclosures(self, corp_code: str = "", bgn_de: str = "", end_de: str = "", pblntf_detail_ty: str = "D001", page_no: int = 1, page_count: int = 100) -> List[Dict]:
         """
