@@ -14,7 +14,8 @@ def get_dart_client():
 
 @st.cache_data(ttl=3600) # Cache for 1 hour to prevent spamming the API
 def fetch_disclosures_for_period(days: int = 7, corp_code: str = ""):
-    """Fetch insider trading disclosures for the last N days, optionally filtered by corp_code."""
+    """Fetch insider trading disclosures for the last N days, optionally filtered by corp_code.
+    Safely chunks requests into 90-day intervals to bypass DART API's 3-month limit."""
     client = get_dart_client()
     
     # Needs corp_codes mapped internally first
@@ -23,18 +24,31 @@ def fetch_disclosures_for_period(days: int = 7, corp_code: str = ""):
     end_date = datetime.now()
     bgn_date = end_date - timedelta(days=days)
     
-    # D002: 임원ㆍ주요주주특정증권등소유상황보고서
-    reports = client.get_disclosures(
-        corp_code=corp_code, 
-        pblntf_detail_ty="D002",
-        bgn_de=bgn_date.strftime("%Y%m%d"),
-        end_de=end_date.strftime("%Y%m%d"),
-        page_count=100
-    )
+    # Chunk into 90-day intervals
+    all_reports = []
+    current_start = bgn_date
+    
+    while current_start <= end_date:
+        current_end = min(current_start + timedelta(days=89), end_date)
+        
+        # D002: 임원ㆍ주요주주특정증권등소유상황보고서
+        reports = client.get_disclosures(
+            corp_code=corp_code, 
+            pblntf_detail_ty="D002",
+            bgn_de=current_start.strftime("%Y%m%d"),
+            end_de=current_end.strftime("%Y%m%d"),
+            page_count=100
+        )
+        if reports:
+            all_reports.extend(reports)
+            
+        current_start = current_end + timedelta(days=1)
     
     # Parse into DataFrame
-    if reports:
-        df = pd.DataFrame(reports)
+    if all_reports:
+        df = pd.DataFrame(all_reports)
+        # Handle potential duplicates if ranges overlap
+        df = df.drop_duplicates(subset=['rcept_no'])
         # Generate the direct viewer links
         df["viewer_url"] = df["rcept_no"].apply(client.get_document_url)
         return df
