@@ -244,6 +244,19 @@ def main():
     search_query = st.sidebar.text_input("종목 검색 (예: 삼성전자)", placeholder="기업명 입력 후 Enter")
     days_to_fetch = st.sidebar.slider("조회 기간 (최근 N일)", min_value=1, max_value=365, value=30)
     
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### ☕ 개발자 후원하기")
+    st.sidebar.markdown(
+        """
+        <a href="https://www.buymeacoffee.com/kimbndt" target="_blank">
+            <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 40px !important;width: 145px !important;" >
+        </a>
+        <br><br>
+        <span style="font-size: 0.8em; color: gray;">불쌍한 개발자에게 도움을!</span>
+        """,
+        unsafe_allow_html=True
+    )
+    
     if search_query:
         render_stock_detail(search_query.strip(), days_to_fetch)
     else:
