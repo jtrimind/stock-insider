@@ -66,16 +66,18 @@ class DARTClient:
 
     @staticmethod
     def _extract_trade_info(grid: List[List[str]]) -> List[Dict[str, str]]:
-        """Extracts Reason, Change, and Unit Price dynamically from the grid."""
+        """Extracts Reason, Date, Change, and Unit Price dynamically from the grid."""
         if not grid or len(grid) < 2:
             return []
             
-        reason_idx, change_idx, price_idx = -1, -1, -1
+        reason_idx, date_idx, change_idx, price_idx = -1, -1, -1, -1
         
         for r in range(min(3, len(grid))):
             for c, val in enumerate(grid[r]):
                 if "보고사유" in val:
                     reason_idx = c
+                if "변동일" in val:
+                    date_idx = c
                 if "증감" in val:
                     change_idx = c
                 if "단가" in val:
@@ -93,10 +95,12 @@ class DARTClient:
                 reason = row[reason_idx]
                 change = row[change_idx]
                 price = row[price_idx]
+                date = row[date_idx] if date_idx != -1 and len(row) > date_idx else "-"
                 
                 if change and change != "-":
                     trades.append({
                         "reason": reason,
+                        "date": date,
                         "change": change,
                         "price": price
                     })

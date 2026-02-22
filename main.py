@@ -64,34 +64,46 @@ def main():
     # Fetch specific trade details for the displayed DataFrame
     progress_bar = st.progress(0, text="공시 원문에서 세부 변동사항 추출 중...")
     
-    reasons, changes, prices = [], [], []
+    flattened_trades = []
     total_rows = len(df)
     for idx, row in enumerate(df.itertuples()):
         trades = get_trade_details(row.rcept_no)
         if trades:
-            reasons.append("\n".join([t['reason'] for t in trades]))
-            changes.append("\n".join([t['change'] for t in trades]))
-            prices.append("\n".join([t['price'] for t in trades]))
+            for t in trades:
+                flattened_trades.append({
+                    "rcept_dt": row.rcept_dt,
+                    "corp_name": row.corp_name,
+                    "flr_nm": row.flr_nm,
+                    "trade_date": t.get("date", "-"),
+                    "reason": t.get("reason", "-"),
+                    "change": t.get("change", "-"),
+                    "price": t.get("price", "-"),
+                    "viewer_url": row.viewer_url
+                })
         else:
-            reasons.append("-")
-            changes.append("-")
-            prices.append("-")
+            flattened_trades.append({
+                "rcept_dt": row.rcept_dt,
+                "corp_name": row.corp_name,
+                "flr_nm": row.flr_nm,
+                "trade_date": "-",
+                "reason": "-",
+                "change": "-",
+                "price": "-",
+                "viewer_url": row.viewer_url
+            })
         progress_bar.progress((idx + 1) / total_rows, text=f"공시 원문 분석 중... ({idx+1}/{total_rows})")
     
     progress_bar.empty()
     
-    df['보고사유'] = reasons
-    df['증감'] = changes
-    df['단가'] = prices
+    display_df = pd.DataFrame(flattened_trades)
 
     # Clean up columns for display
-    display_df = df[["rcept_dt", "corp_name", "flr_nm", "보고사유", "증감", "단가", "viewer_url"]].copy()
-    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "보고사유", "증감(주)", "단가(원)", "원문 링크"]
+    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "변동일(거래일)", "보고사유", "증감(주)", "단가(원)", "원문 링크"]
     
-    # Sort by date descending
-    display_df = display_df.sort_values(by="공시일", ascending=False)
+    # Sort by '변동일(거래일)' descending if available, else fallback to '공시일'
+    display_df = display_df.sort_values(by=["변동일(거래일)", "공시일"], ascending=[False, False])
     
-    st.subheader(f"최근 {days_to_fetch}일 공시 피드 ({len(display_df)}건)")
+    st.subheader(f"최근 {days_to_fetch}일 변동내역 피드 ({len(display_df)}건)")
     
     # Display the dataframe with clickable links
     st.dataframe(
