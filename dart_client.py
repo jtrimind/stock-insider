@@ -18,6 +18,11 @@ load_dotenv()
 class DARTClient:
     BASE_URL = "https://opendart.fss.or.kr/api"
 
+    @staticmethod
+    def get_document_url(rcept_no: str) -> str:
+        """Helper to generate a direct link to the DART web viewer for a specific report."""
+        return f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"
+
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("DART_API_KEY")
         if not self.api_key:
