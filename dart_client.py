@@ -60,6 +60,11 @@ class DARTClient:
                 for _ in range(colspan):
                     row_data.append(text)
                     c_idx += 1
+            
+            # Consume any remaining spanned cells at the end of this row
+            while (r_idx, c_idx) in spanned_cells:
+                row_data.append(spanned_cells[(r_idx, c_idx)])
+                c_idx += 1
                     
             grid.append(row_data)
             
@@ -87,7 +92,8 @@ class DARTClient:
             
         reason_idx, date_idx, change_idx, price_idx = -1, -1, -1, -1
         
-        for r in range(min(3, len(grid))):
+        # Scan only the first 2 rows for headers to prevent accidental matches in data rows
+        for r in range(min(2, len(grid))):
             for c, val in enumerate(grid[r]):
                 if "보고사유" in val:
                     reason_idx = c
