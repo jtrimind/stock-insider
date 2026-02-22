@@ -1,6 +1,7 @@
 import os
 import sys
 import io
+import re
 import zipfile
 import json
 import xml.etree.ElementTree as ET
@@ -65,6 +66,20 @@ class DARTClient:
         return grid
 
     @staticmethod
+    def _normalize_date(date_str: str) -> str:
+        """Parses various Korean date formats into YYYY-MM-DD ISO8601 string."""
+        if not date_str or date_str == "-":
+            return "-"
+        
+        # Match YYYY, MM, DD using greedy match on digits
+        match = re.search(r"(\d{4})[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*", date_str)
+        if match:
+            year, month, day = match.groups()
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+            
+        return date_str.strip()
+
+    @staticmethod
     def _extract_trade_info(grid: List[List[str]]) -> List[Dict[str, str]]:
         """Extracts Reason, Date, Change, and Unit Price dynamically from the grid."""
         if not grid or len(grid) < 2:
@@ -95,7 +110,8 @@ class DARTClient:
                 reason = row[reason_idx]
                 change = row[change_idx]
                 price = row[price_idx]
-                date = row[date_idx] if date_idx != -1 and len(row) > date_idx else "-"
+                raw_date = row[date_idx] if date_idx != -1 and len(row) > date_idx else "-"
+                date = DARTClient._normalize_date(raw_date)
                 
                 if change and change != "-":
                     trades.append({
