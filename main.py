@@ -61,9 +61,39 @@ def get_trade_details(rcept_no: str):
     return client.get_insider_trade_details(rcept_no)
 
 def process_and_flatten_trades(df: pd.DataFrame) -> pd.DataFrame:
-    """Extract XML details and flatten into individual transaction rows."""
+    """Extract XML details and flatten into individual transaction rows, computing RSI."""
     if df.empty:
         return pd.DataFrame()
+
+    # Pre-compute RSI for unique companies to save time
+    unique_companies = df["corp_name"].unique()
+    rsi_cache = {}
+    client = get_dart_client()
+    
+    rsi_progress = st.progress(0, text="종목별 현재 RSI 계산 중...")
+    today = datetime.now()
+    start_date = today - timedelta(days=250)
+    for idx, company in enumerate(unique_companies):
+        info = client.get_company_info_by_name(company)
+        if info and info.get("stock_code"):
+            stock_code = info["stock_code"]
+            df_price = StockDataClient.get_ohlcv(
+                stock_code, 
+                start_date=start_date.strftime("%Y%m%d"), 
+                end_date=today.strftime("%Y%m%d")
+            )
+            if not df_price.empty:
+                rsi_series = StockDataClient.calculate_rsi(df_price['close'])
+                latest_rsi = rsi_series.iloc[-1]
+                rsi_cache[company] = round(latest_rsi, 2) if pd.notna(latest_rsi) else None
+            else:
+                rsi_cache[company] = None
+        else:
+            rsi_cache[company] = None
+                
+        rsi_progress.progress((idx + 1) / len(unique_companies), text=f"RSI 계산 중... ({idx+1}/{len(unique_companies)})")
+
+    rsi_progress.empty()
 
     progress_bar = st.progress(0, text="공시 원문에서 세부 변동사항 추출 중...")
     
@@ -81,6 +111,7 @@ def process_and_flatten_trades(df: pd.DataFrame) -> pd.DataFrame:
                     "reason": t.get("reason", "-"),
                     "change": t.get("change", "-"),
                     "price": t.get("price", "-"),
+                    "rsi": rsi_cache.get(row.corp_name),
                     "viewer_url": row.viewer_url
                 })
         else:
@@ -92,6 +123,7 @@ def process_and_flatten_trades(df: pd.DataFrame) -> pd.DataFrame:
                 "reason": "-",
                 "change": "-",
                 "price": "-",
+                "rsi": rsi_cache.get(row.corp_name),
                 "viewer_url": row.viewer_url
             })
         progress_bar.progress((idx + 1) / total_rows, text=f"공시 원문 분석 중... ({idx+1}/{total_rows})")
@@ -99,7 +131,7 @@ def process_and_flatten_trades(df: pd.DataFrame) -> pd.DataFrame:
     progress_bar.empty()
     
     display_df = pd.DataFrame(flattened_trades)
-    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "변동일(거래일)", "보고사유", "증감(주)", "단가(원)", "원문 링크"]
+    display_df.columns = ["공시일", "기업명", "보고자(임원/주주)", "변동일(거래일)", "보고사유", "증감(주)", "단가(원)", "RSI(14일)", "원문 링크"]
     display_df = display_df.sort_values(by=["변동일(거래일)", "공시일"], ascending=[False, False])
     return display_df
 
@@ -131,6 +163,11 @@ def render_market_feed(days_to_fetch: int):
         display_df,
         column_config={
             "원문 링크": st.column_config.LinkColumn("DART 뷰어 확인"),
+            "RSI(14일)": st.column_config.NumberColumn(
+                "현재 RSI", 
+                help="종목의 14일 기준 최신 RSI 값입니다.",
+                format="%.2f"
+            ),
         },
         width="stretch",
         hide_index=True
@@ -160,18 +197,54 @@ def render_stock_detail(company_name: str, days_to_fetch: int):
     # 2. Fetch and render Stock Price Chart if stock_code exists
     if stock_code:
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_to_fetch)
+        # Fetch an extra 250 days to ensure we have enough data to calculate a 14-day RSI accurately (EMA warmup)
+        extended_start_date = end_date - timedelta(days=days_to_fetch + 250)
         
         with st.spinner(f"주가 데이터를 불러오는 중 (종목코드: {stock_code})..."):
-            df_price = StockDataClient.get_ohlcv(
+            df_price_full = StockDataClient.get_ohlcv(
                 stock_code=stock_code,
-                start_date=start_date.strftime("%Y%m%d"),
+                start_date=extended_start_date.strftime("%Y%m%d"),
                 end_date=end_date.strftime("%Y%m%d")
             )
         
-        if not df_price.empty:
-            # Ensure price date is a datetime object for charting
-            df_price['date'] = pd.to_datetime(df_price['date'])
+        if not df_price_full.empty:
+            # Calculate RSI on the full dataset
+            df_price_full['rsi'] = StockDataClient.calculate_rsi(df_price_full['close'])
+            
+            # Slice the data back to the user's requested timeframe for the chart
+            chart_start_date = end_date - timedelta(days=days_to_fetch)
+            # Ensure price date is a datetime object for filtering and charting
+            df_price_full['date'] = pd.to_datetime(df_price_full['date'])
+            df_price = df_price_full[df_price_full['date'] >= pd.to_datetime(chart_start_date.strftime("%Y-%m-%d"))].copy()
+            
+            # Extract latest metrics for display
+            latest_data = df_price_full.iloc[-1]
+            prev_data = df_price_full.iloc[-2] if len(df_price_full) > 1 else latest_data
+            
+            latest_close = latest_data['close']
+            price_diff = latest_close - prev_data['close']
+            price_diff_pct = (price_diff / prev_data['close']) * 100 if prev_data['close'] > 0 else 0
+            
+            latest_rsi = latest_data['rsi']
+            
+            # Display Metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("현재가 (종가)", f"{latest_close:,.0f}원", f"{price_diff:,.0f}원 ({price_diff_pct:+.2f}%)")
+            with col2:
+                rsi_str = f"{latest_rsi:.2f}" if pd.notna(latest_rsi) else "N/A"
+                # Simple RSI interpretation
+                rsi_delta = ""
+                if pd.notna(latest_rsi):
+                    if latest_rsi >= 70:
+                        rsi_delta = "과매수 (Overbought)"
+                    elif latest_rsi <= 30:
+                        rsi_delta = "과매도 (Oversold)"
+                    else:
+                        rsi_delta = "중립 (Neutral)"
+                st.metric("현재 RSI (14일)", rsi_str, rsi_delta, delta_color="off")
+            
+            st.markdown("---")
             
             # Base Line Chart for Stock Price
             base = alt.Chart(df_price).encode(

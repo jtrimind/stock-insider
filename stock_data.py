@@ -44,6 +44,21 @@ class StockDataClient:
             
         return df
 
+    @staticmethod
+    def calculate_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+        """Calculate the Relative Strength Index (RSI) for a given pandas Series."""
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
+        
+        # Exponential moving average (EMA) is standard for RSI
+        avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
+        avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+
 if __name__ == "__main__":
     # Test block
     print("Testing pykrx StockDataClient...")
