@@ -115,6 +115,18 @@ def render_market_feed(days_to_fetch: int):
 
     display_df = process_and_flatten_trades(df)
     
+    # Filter by Report Reason
+    unique_reasons = sorted(display_df["보고사유"].unique().tolist())
+    selected_reasons = st.multiselect(
+        "보고사유 필터 (Reason Filter)",
+        options=unique_reasons,
+        default=[],
+        help="보고사유를 선택하여 필터링하세요."
+    )
+    
+    if selected_reasons:
+        display_df = display_df[display_df["보고사유"].isin(selected_reasons)]
+
     st.dataframe(
         display_df,
         column_config={
