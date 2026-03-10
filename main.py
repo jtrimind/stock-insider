@@ -341,7 +341,7 @@ def main():
     st.sidebar.header("검색 및 필터 (Search & Filters)")
     
     search_query = st.sidebar.text_input("종목 검색 (예: 삼성전자)", placeholder="기업명 입력 후 Enter")
-    days_to_fetch = st.sidebar.slider("조회 기간 (최근 N일)", min_value=1, max_value=365, value=7)
+    days_to_fetch = st.sidebar.slider("조회 기간 (최근 N일)", min_value=1, max_value=365, value=1)
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("### ☕ 개발자 후원하기")
