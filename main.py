@@ -60,6 +60,7 @@ def get_trade_details(rcept_no: str):
     client = get_dart_client()
     return client.get_insider_trade_details(rcept_no)
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def process_and_flatten_trades(df: pd.DataFrame) -> pd.DataFrame:
     """Extract XML details and flatten into individual transaction rows, computing RSI."""
     if df.empty:
